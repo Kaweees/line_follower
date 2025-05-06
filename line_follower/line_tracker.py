@@ -1,24 +1,34 @@
 # Third-Party Libraries
 import os
-import cv2
-import yaml
 import numpy as np
+
+from yolo_onnx_runner import YOLO
 
 # ROS Imports
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data  # Quality of Service settings for real-time data
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped 
 from ament_index_python.packages import get_package_share_directory
 
 # Project-Specific Imports
-from line_follower.utils import get_corners, to_surface_coordinates, read_transform_config, draw_box
+from line_follower.utils import (
+    get_corners, 
+    to_surface_coordinates, 
+    read_transform_config, 
+    draw_box,
+    parse_predictions,
+    get_base,
+)
 from ros2_numpy import image_to_np, np_to_image, np_to_pose
 
 class LineFollower(Node):
     def __init__(self, filepath, debug = False):
         super().__init__('line_tracker')
+
+        # Define a model
+        self.model = YOLO('../models/best.onnx')
 
         # Define a message to send when the line tracker has lost track
         self.lost_msg = PoseStamped()
@@ -67,30 +77,31 @@ class LineFollower(Node):
 
         self.get_logger().info("Line Tracker Node started.")
 
-
     def image_callback(self, msg):
 
         # Convert ROS image to numpy format
         # timestamp_unix is the image timestamp in seconds (Unix time)
         image, timestamp_unix = image_to_np(msg)
 
-        # Apply preprocessing (Canny edge detection)
-        im_canny = self.preprocess_image(image)
-        
-        # Find the line center position
-        success, self.win_x = self.find_center(self.win_x, im_canny)
+        # Get the line center from the model
+        results = self.model(image)
+        img_mask = parse_predictions(results)
 
         # Plot and publish result if debug is Trze
         if self.debug:
-            corners = self.get_corners(self.win_x)
-            result = draw_box(image, im_canny, corners)
-            im_msg = np_to_image(result)
-            self.im_publisher.publish(im_msg)
+            pass
+            # corners = self.get_corners(self.win_x)
+            # result = draw_box(image, im_canny, corners)
+            # im_msg = np_to_image(result)
+            # self.im_publisher.publish(im_msg)
 
-        if success:
-            
+
+        if not img_mask is None:
+            # Get center coordinates from mask
+            cx, cy = get_base(img_mask)
+
             # Transform from pixel to world coordinates
-            x, y = self.to_surface_coordinates(self.win_x, self.win_y)
+            x, y = self.to_surface_coordinates(cx, cy)
 
             # Extract the timestamp from the incoming image message
             timestamp = msg.header.stamp
@@ -102,40 +113,6 @@ class LineFollower(Node):
         else:
             self.publisher.publish(self.lost_msg)
             self.get_logger().info("Lost track!")
-
-    def preprocess_image(self, image):
-
-        # Convert to grayscale
-        im_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-        # Apply Gaussian blur to the grayscale image
-        im_blur = cv2.GaussianBlur(im_gray, self.kernel, 0)
-
-        # Apply Canny edge detection to the preprocessed image
-        im_canny = cv2.Canny(im_blur, self.canny_min, self.canny_max) # [0 or 255]
-        
-        return im_canny
-
-    def find_center(self, win_x, im_canny):
-        # Adjust window center by detecting lane line pixels in the image patch
-        # Success means pixels were found and a new center is calculated
-
-        x1, x2, y1, y2 = self.get_corners(win_x)
-
-        # Extract the relevant image patch and identify non-zero pixels (lane line pixels)
-        patch = im_canny[y1:y2, x1:x2]
-        _, xs = np.nonzero(patch)
-
-
-        # Check if any lane line pixels are detected
-        # If not, return False along with the current center
-        if len(xs) == 0:
-            return False, win_x
-
-        # Calculate the new center based on the mean of the detected pixels
-        updated_center = int(x1 + np.mean(xs))
-
-        return True, updated_center
 
     def declare_params(self):
 
