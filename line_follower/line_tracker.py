@@ -28,7 +28,8 @@ class LineFollower(Node):
         super().__init__('line_tracker')
 
         # Define a model
-        self.model = YOLO('../models/best.onnx')
+        print(os.getcwd())
+        self.model = YOLO('src/line_follower/models/best.onnx')
 
         # Define a message to send when the line tracker has lost track
         self.lost_msg = PoseStamped()
