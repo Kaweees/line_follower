@@ -1,7 +1,7 @@
-
 import numpy as np
 import yaml
 import cv2
+
 
 def get_corners(cx, cy, win_w, win_h, image_w, image_h):
     # Calculate the search window coordinates, ensuring they are within image bounds
@@ -11,10 +11,11 @@ def get_corners(cx, cy, win_w, win_h, image_w, image_h):
     y2 = min(image_h, y1 + win_h)
     return x1, x2, y1, y2
 
+
 def to_surface_coordinates(u, v, H):
     """
     Converts pixel coordinates (u, v) to surface coordinates using a homography matrix H.
-    
+
     - Ensures u and v are NumPy arrays.
     - If u or v is a single float or int, converts them into a NumPy array.
     - If the result is a single point, returns x and y as scalars.
@@ -30,7 +31,9 @@ def to_surface_coordinates(u, v, H):
     points = H @ pixels  # Matrix multiplication (3,3) @ (3,N) -> (3,N)
 
     # Normalize x, y by w
-    x, y = points[:2] / points[-1]  # Normalize x and y by the last row (homogeneous coordinate)
+    x, y = (
+        points[:2] / points[-1]
+    )  # Normalize x and y by the last row (homogeneous coordinate)
 
     # If x and y are single-element arrays, unpack them to return scalars
     if len(x) == 1 and len(y) == 1:
@@ -51,16 +54,16 @@ def read_transform_config(filepath):
     tuple: Returns individual variables extracted from the YAML file.
     """
     # Load the YAML data from the specified file
-    with open(filepath, 'r') as file:
+    with open(filepath, "r") as file:
         data = yaml.safe_load(file)
 
     # Use eval to convert homography string to list of lists
-    homography_str = data.get('homography', None)
+    homography_str = data.get("homography", None)
     H = np.array(eval(homography_str))
     return H
-    
 
-def draw_box(image, im_canny, corners, color=(0, 255, 0), thickness = 2):
+
+def draw_box(image, im_canny, corners, color=(0, 255, 0), thickness=2):
 
     x1, x2, y1, y2 = corners
 
@@ -75,7 +78,8 @@ def draw_box(image, im_canny, corners, color=(0, 255, 0), thickness = 2):
 
     return image
 
-def parse_predictions(predictions, class_ids = [0]):
+
+def parse_predictions(predictions, class_ids=[0]):
     """
     Process the model predictions and create a mask image.
 
@@ -90,8 +94,8 @@ def parse_predictions(predictions, class_ids = [0]):
     p = predictions[0]
 
     bboxs = p.boxes
-    ids = bboxs.cls.cpu().numpy()        # Class IDs e.g., center(0), stop(1)
-    confidences = bboxs.conf.cpu().numpy() # Confidence scores (not used here)
+    ids = bboxs.cls.cpu().numpy()  # Class IDs e.g., center(0), stop(1)
+    confidences = bboxs.conf.cpu().numpy()  # Confidence scores (not used here)
 
     masks = p.masks
     if masks is None:
@@ -128,13 +132,45 @@ def parse_predictions(predictions, class_ids = [0]):
 
     return True, output
 
-def get_base(mask, N = 100):
+
+def get_base(mask, N=100):
     y, x = np.nonzero(mask)
-    xs = x[np.argsort(y, )][-N:]
+    xs = x[
+        np.argsort(
+            y,
+        )
+    ][-N:]
     ys = y[np.argsort(y)][-N:]
 
-    cx, cy = np.mean([xs, ys], axis = 1)
+    cx, cy = np.mean([xs, ys], axis=1)
 
     return cx, cy
+    
+def detect_bbox_center(predictions, target_id): #Tells you if object is detected, if true gives you bottom center of bbox for 3d coords and distance.
 
+  #Check if there are any predictions
+  if len(predictions) == 0:
+    return False, None, None
+  p = predictions[0].cpu() #Move predictiuons from gpu to cpu
 
+  all_bboxes = p.boxes # access the bounding boxes
+
+  ids = all_bboxes.cls.numpy()# Class IDs
+  confidences = all_bboxes.conf.numpy()#Confidence
+
+  #Check if ID is pres4ent in the predictions.
+  if target_id not in ids:
+    return False, None, None #this is basically if we did not detect a stop sign
+
+  #Filter for boxes with TargetID
+  bboxes = all_bboxes[ids == target_id]
+
+  center_x, center_y, w, h = bboxes.xywh[0].numpy()
+  bottom_y = center_y + h/2 #y axis points downwards in images, so add height to get bottom
+
+  return True, center_x, bottom_y
+
+def draw_circle(image, x, y):
+  center = (int(x),int(y))
+  cv2.circle(image,center,radius=5, color=(0,0,255), thickness = -1)# minus one give filled circle, otherwise contour
+  return image

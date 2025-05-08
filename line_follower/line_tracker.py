@@ -1,8 +1,8 @@
 # Third-Party Libraries
-import os
+import os, cv2
 import numpy as np
 
-from yolo_onnx_runner import YOLO
+from ultralytics import YOLO
 
 # ROS Imports
 import rclpy
@@ -23,15 +23,13 @@ from line_follower.utils import (
     parse_predictions,
     get_base,
 )
-from ros2_numpy import image_to_np, np_to_image, np_to_pose
+
+from ros2_numpy import image_to_np, np_to_image, np_to_pose, np_to_compressedimage
 
 
 class LineFollower(Node):
-    def __init__(self, filepath, debug=False):
+    def __init__(self, model_path, config_path, debug=False):
         super().__init__("line_tracker")
-
-        # Define a model
-        self.model = YOLO("src/line_follower/models/best.onnx")
 
         # Define a message to send when the line tracker has lost track
         self.lost_msg = PoseStamped()
@@ -42,12 +40,14 @@ class LineFollower(Node):
         # Plot the result if debug is True
         self.debug = debug
 
-        if not os.path.exists(filepath):
-            raise FileNotFoundError(f"The file at '{filepath}' was not found.")
+        # Check if the model and config files exist
+        for path in [model_path, config_path]:
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"The file at '{path}' was not found.")
 
-        # Read the homography matrix H from the given config file.
+            # Read the homography matrix H from the given config file.
         # This matrix defines the transformation from 2D pixel coordinates to 3D world coordinates.
-        H = read_transform_config(filepath)
+        H = read_transform_config(config_path)
 
         # Define Quality of Service (QoS) for communication
         qos_profile = qos_profile_sensor_data  # Suitable for sensor data
@@ -62,24 +62,32 @@ class LineFollower(Node):
         )
 
         # Publisher to send calculated waypoints
-        self.publisher = self.create_publisher(PoseStamped, "/waypoint", qos_profile)
+        self.center_publisher = self.create_publisher(
+            PoseStamped, "/center/waypoint", qos_profile
+        )
+        self.stop_publisher = self.create_publisher(
+            PoseStamped, "/stop/waypoint", qos_profile
+        )
+        self.speed_2mph_sign_publisher = self.create_publisher(
+            PoseStamped, "/speed_2mph/waypoint", qos_profile
+        )
+        self.speed_3mph_publisher = self.create_publisher(
+            PoseStamped, "/speed_3mph/waypoint", qos_profile
+        )
 
         # Publisher to send processed result images for visualization
-        if self.debug:
-            self.im_publisher = self.create_publisher(Image, "/result", qos_profile)
-
-        # Load parameters
-        self.params_set = False
-        self.declare_params()
-        self.load_params()
-
-        # Create a timer that calls self.load_params every 10 seconds (10.0 seconds)
-        self.timer = self.create_timer(10.0, self.load_params)
+        self.im_publisher = self.create_publisher(Image, "/result", qos_profile)
 
         # Returns a function that converts pixel coordinates to surface coordinates using a fixed matrix 'H'
         self.to_surface_coordinates = lambda u, v: to_surface_coordinates(u, v, H)
 
-        self.get_logger().info("Line Tracker Node started.")
+        # Load the custom trained YOLO model
+        self.model = YOLO(model_path)
+
+        # Log an informational message indicating that the Line Tracker Node has started
+        self.get_logger().info(
+            "Line Tracker Node started. Custom YOLO model loaded successfully."
+        )
 
     def image_callback(self, msg):
 
@@ -87,21 +95,23 @@ class LineFollower(Node):
         # timestamp_unix is the image timestamp in seconds (Unix time)
         image, timestamp_unix = image_to_np(msg)
 
-        # Get the line center from the model
-        results = self.model(image)
-        img_mask = parse_predictions(results)
+        # Run YOLO inference
+        predictions = self.model(image, verbose=False)
 
-        # Plot and publish result if debug is Trze
-        if self.debug:
-            pass
-            # corners = self.get_corners(self.win_x)
-            # result = draw_box(image, im_canny, corners)
-            # im_msg = np_to_image(result)
-            # self.im_publisher.publish(im_msg)
+        # Draw results on the image
+        plot = predictions[0].plot()
 
-        if not img_mask is None:
-            # Get center coordinates from mask
-            cx, cy = get_base(img_mask)
+        # Convert back to ROS2 Image and publish
+        im_msg = np_to_compressedimage(cv2.cvtColor(plot, cv2.COLOR_BGR2RGB))
+
+        # Publish predictions
+        self.im_publisher.publish(im_msg)
+
+        success, mask = parse_predictions(predictions)
+
+        if success:
+
+            cx, cy = get_base(mask)
 
             # Transform from pixel to world coordinates
             x, y = self.to_surface_coordinates(cx, cy)
@@ -111,10 +121,10 @@ class LineFollower(Node):
 
             # Publish waypoint as Pose message
             pose_msg = np_to_pose(np.array([x, y]), 0.0, timestamp=timestamp)
-            self.publisher.publish(pose_msg)
+            self.center_publisher.publish(pose_msg)
 
         else:
-            self.publisher.publish(self.lost_msg)
+            self.center_publisher.publish(self.stop_msg)
             self.get_logger().info("Lost track!")
 
     def declare_params(self):
