@@ -12,7 +12,7 @@ from rclpy.qos import (
 )  # Quality of Service settings for real-time data
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseStamped
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_share_directory, get_package_prefix
 
 # Project-Specific Imports
 from line_follower.utils import (
@@ -184,14 +184,18 @@ class LineFollower(Node):
 
 def main(args=None):
 
+    # Get the package share directory
+    package_share_dir = get_package_share_directory("line_follower")
+
     # Transformation matrix for converting pixel coordinates to world coordinates
-    filepath = (
-        get_package_share_directory("line_follower")
-        + "/config/transform_config_640x360.yaml"
-    )
+    config_path = package_share_dir + "/config/transform_config_640x360.yaml"
+
+    # Path to your custom trained YOLO model
+    pkg_path = get_package_prefix("line_follower").replace("install", "src")
+    model_path = pkg_path + "/models/best.pt"
 
     rclpy.init(args=args)
-    node = LineFollower(filepath, debug=True)
+    node = LineFollower(model_path=model_path, config_path=config_path, debug=True)
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
