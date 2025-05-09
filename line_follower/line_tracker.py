@@ -22,6 +22,7 @@ from line_follower.utils import (
     draw_box,
     parse_predictions,
     get_base,
+    detect_bbox_center,
 )
 
 from ros2_numpy import image_to_np, np_to_image, np_to_pose, np_to_compressedimage
@@ -84,6 +85,15 @@ class LineFollower(Node):
         # Load the custom trained YOLO model
         self.model = YOLO(model_path)
 
+        self.id2label = self.model.names
+        self.label2id = {label: id for id, label in self.id2label.items()}
+
+        # Define the IDs for the different classes
+        self.center_id = self.label2id["center"]
+        self.stop_id = self.label2id["stop"]
+        self.speed_2mph_id = self.label2id["speed_2mph"]
+        self.speed_3mph_id = self.label2id["speed_3mph"]
+
         # Log an informational message indicating that the Line Tracker Node has started
         self.get_logger().info(
             "Line Tracker Node started. Custom YOLO model loaded successfully."
@@ -107,12 +117,10 @@ class LineFollower(Node):
         # Publish predictions
         self.im_publisher.publish(im_msg)
 
-        success, mask = parse_predictions(predictions)
+        # Detect center line
+        detected, cx, cy = detect_bbox_center(predictions, self.center_id)
 
-        if success:
-
-            cx, cy = get_base(mask)
-
+        if detected:
             # Transform from pixel to world coordinates
             x, y = self.to_surface_coordinates(cx, cy)
 
@@ -122,10 +130,9 @@ class LineFollower(Node):
             # Publish waypoint as Pose message
             pose_msg = np_to_pose(np.array([x, y]), 0.0, timestamp=timestamp)
             self.center_publisher.publish(pose_msg)
-
         else:
-            self.center_publisher.publish(self.stop_msg)
-            self.get_logger().info("Lost track!")
+            self.center_publisher.publish(self.lost_msg)
+            self.get_logger().info("Lost track of center line")
 
     def declare_params(self):
 
