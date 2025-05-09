@@ -94,6 +94,14 @@ class LineFollower(Node):
         self.speed_2mph_id = self.label2id["speed_2mph"]
         self.speed_3mph_id = self.label2id["speed_3mph"]
 
+        # Define labels and their corresponding publishers
+        self.label2publisher = {
+            self.center_id: self.center_publisher,
+            self.stop_id: self.stop_publisher,
+            self.speed_2mph_id: self.speed_2mph_sign_publisher,
+            self.speed_3mph_id: self.speed_3mph_publisher,
+        }
+
         # Log an informational message indicating that the Line Tracker Node has started
         self.get_logger().info(
             "Line Tracker Node started. Custom YOLO model loaded successfully."
@@ -117,22 +125,23 @@ class LineFollower(Node):
         # Publish predictions
         self.im_publisher.publish(im_msg)
 
-        # Detect center line
-        detected, cx, cy = detect_bbox_center(predictions, self.center_id)
+        # Extract the timestamp from the incoming image message
+        timestamp = msg.header.stamp
 
-        if detected:
-            # Transform from pixel to world coordinates
-            x, y = self.to_surface_coordinates(cx, cy)
+        # Loop through each label and publish detections
+        for label_id, publisher in self.label2publisher.items():
+            detected, cx, cy = detect_bbox_center(predictions, label_id)
 
-            # Extract the timestamp from the incoming image message
-            timestamp = msg.header.stamp
+            if detected:
+                # Transform from pixel to world coordinates
+                x, y = self.to_surface_coordinates(cx, cy)
 
-            # Publish waypoint as Pose message
-            pose_msg = np_to_pose(np.array([x, y]), 0.0, timestamp=timestamp)
-            self.center_publisher.publish(pose_msg)
-        else:
-            self.center_publisher.publish(self.lost_msg)
-            self.get_logger().info("Lost track of center line")
+                # Publish waypoint as Pose message
+                pose_msg = np_to_pose(np.array([x, y]), 0.0, timestamp=timestamp)
+                publisher.publish(pose_msg)
+            else:
+                publisher.publish(self.lost_msg)
+                self.get_logger().info(f"Lost track of {self.id2label[label_id]}")
 
     def declare_params(self):
 
