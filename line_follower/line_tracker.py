@@ -10,7 +10,7 @@ from rclpy.node import Node
 from rclpy.qos import (
     qos_profile_sensor_data,
 )  # Quality of Service settings for real-time data
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 from geometry_msgs.msg import PoseStamped
 from ament_index_python.packages import get_package_share_directory, get_package_prefix
 
@@ -46,7 +46,7 @@ class LineFollower(Node):
             if not os.path.exists(path):
                 raise FileNotFoundError(f"The file at '{path}' was not found.")
 
-            # Read the homography matrix H from the given config file.
+        # Read the homography matrix H from the given config file.
         # This matrix defines the transformation from 2D pixel coordinates to 3D world coordinates.
         H = read_transform_config(config_path)
 
@@ -63,21 +63,19 @@ class LineFollower(Node):
         )
 
         # Publisher to send calculated waypoints
-        self.center_publisher = self.create_publisher(
-            PoseStamped, "/center/waypoint", qos_profile
+        self.waypoint_publisher = self.create_publisher(
+            PoseStamped, "/waypoint", qos_profile
         )
-        self.stop_publisher = self.create_publisher(
-            PoseStamped, "/stop/waypoint", qos_profile
-        )
-        self.speed_2mph_sign_publisher = self.create_publisher(
-            PoseStamped, "/speed_2mph/waypoint", qos_profile
-        )
-        self.speed_3mph_publisher = self.create_publisher(
-            PoseStamped, "/speed_3mph/waypoint", qos_profile
+
+        # Publisher to send 3d object positions
+        self.object_publisher = self.create_publisher(
+            PoseStamped, "/object", qos_profile
         )
 
         # Publisher to send processed result images for visualization
-        self.im_publisher = self.create_publisher(Image, "/result", qos_profile)
+        self.im_publisher = self.create_publisher(
+            CompressedImage, "/result", qos_profile
+        )
 
         # Returns a function that converts pixel coordinates to surface coordinates using a fixed matrix 'H'
         self.to_surface_coordinates = lambda u, v: to_surface_coordinates(u, v, H)
@@ -85,21 +83,11 @@ class LineFollower(Node):
         # Load the custom trained YOLO model
         self.model = YOLO(model_path)
 
+        # Map class IDs to labels and labels to IDs
         self.id2label = self.model.names
-        self.label2id = {label: id for id, label in self.id2label.items()}
-
-        # Define the IDs for the different classes
-        self.center_id = self.label2id["center"]
-        self.stop_id = self.label2id["stop"]
-        self.speed_2mph_id = self.label2id["speed_2mph"]
-        self.speed_3mph_id = self.label2id["speed_3mph"]
-
-        # Define labels and their corresponding publishers
-        self.label2publisher = {
-            self.center_id: self.center_publisher,
-            self.stop_id: self.stop_publisher,
-            self.speed_2mph_id: self.speed_2mph_sign_publisher,
-            self.speed_3mph_id: self.speed_3mph_publisher,
+        targets = ["stop", "speed_3mph", "speed_2mph"]
+        self.id2target = {
+            id: lbl for id, lbl in self.id2label.items() if lbl in targets
         }
 
         # Log an informational message indicating that the Line Tracker Node has started
@@ -125,23 +113,42 @@ class LineFollower(Node):
         # Publish predictions
         self.im_publisher.publish(im_msg)
 
-        # Extract the timestamp from the incoming image message
-        timestamp = msg.header.stamp
+        success, mask = parse_predictions(predictions)
+
+        if success:
+            cx, cy = get_base(mask)
+
+            # Transform from pixel to world coordinates
+            x, y = self.to_surface_coordinates(cx, cy)
+
+            # Extract the timestamp from the incoming image message
+            timestamp = msg.header.stamp
+
+            # Publish waypoint as Pose message
+            pose_msg = np_to_pose(np.array([x, y]), 0.0, timestamp=timestamp)
+            self.waypoint_publisher.publish(pose_msg)
+        else:
+            self.waypoint_publisher.publish(self.lost_msg)
+            self.get_logger().info("Lost track!")
 
         # Loop through each label and publish detections
-        for label_id, publisher in self.label2publisher.items():
-            detected, cx, cy = detect_bbox_center(predictions, label_id)
+        for id, lbl in self.id2target.items():
+            detected, u, v = detect_bbox_center(predictions, id)
 
             if detected:
                 # Transform from pixel to world coordinates
-                x, y = self.to_surface_coordinates(cx, cy)
+                x, y = self.to_surface_coordinates(u, v)
 
-                # Publish waypoint as Pose message
-                pose_msg = np_to_pose(np.array([x, y]), 0.0, timestamp=timestamp)
-                publisher.publish(pose_msg)
+                # Publish object as Pose message
+                pose_msg = np_to_pose(np.array([x, y, id]), 0.0, timestamp=timestamp)
+
             else:
-                publisher.publish(self.lost_msg)
-                self.get_logger().info(f"Lost track of {self.id2label[label_id]}")
+                pose_msg = (
+                    self.lost_msg
+                )  # Attention: this creates a reference — use deepcopy() if you want self.stop_msg to remain unchanged
+                pose_msg.pose.position.z = float(id)
+                self.get_logger().info(f"Lost track of {self.id2target[id]}!")
+            self.object_publisher.publish(pose_msg)
 
     def declare_params(self):
 
