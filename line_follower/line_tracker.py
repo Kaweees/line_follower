@@ -3,6 +3,8 @@ import os, cv2
 import numpy as np
 
 from ultralytics import YOLO
+from typing import Any
+from queue import PriorityQueue
 
 # ROS Imports
 import rclpy
@@ -69,7 +71,7 @@ class LineFollower(Node):
 
         # Publisher to send 3d object positions
         self.object_publisher = self.create_publisher(
-            PoseStamped, "/object", qos_profile
+            PoseStamped, "object", qos_profile
         )
 
         # Publisher to send processed result images for visualization
@@ -81,7 +83,7 @@ class LineFollower(Node):
         self.to_surface_coordinates = lambda u, v: to_surface_coordinates(u, v, H)
 
         # Load the custom trained YOLO model
-        self.model = YOLO(model_path)
+        self.model = self.load_model(model_path)
 
         # Map class IDs to labels and labels to IDs
         self.id2label = self.model.names
@@ -90,10 +92,31 @@ class LineFollower(Node):
             id: lbl for id, lbl in self.id2label.items() if lbl in targets
         }
 
+        # Publisher to send 3d object positions for each label
+        self.label2publishers: dict[str, Any] = {
+            name: self.create_publisher(PoseStamped, f"/{name}/object", qos_profile)
+            for name in targets
+        }
+
         # Log an informational message indicating that the Line Tracker Node has started
         self.get_logger().info(
             "Line Tracker Node started. Custom YOLO model loaded successfully."
         )
+
+    def load_model(self, filepath):
+        model = YOLO(filepath)
+
+        self.imgsz = model.args[
+            "imgsz"
+        ]  # Get the image size (imgsz) the loaded model was trained on.
+
+        # Init model
+        print("Initializing the model with a dummy input...")
+        im = np.zeros((self.imgsz, self.imgsz, 3))  # dummy image
+        _ = model.predict(im)
+        print("Model initialization complete.")
+
+        return model
 
     def image_callback(self, msg):
 
@@ -132,8 +155,8 @@ class LineFollower(Node):
             self.get_logger().info("Lost track!")
 
         # Loop through each label and publish detections
-        for id, lbl in self.id2target.items():
-            detected, u, v = detect_bbox_center(predictions, id)
+        for label_id, label in self.id2target.items():
+            detected, u, v = detect_bbox_center(predictions, label_id)
 
             if detected:
                 # Transform from pixel to world coordinates
@@ -141,12 +164,12 @@ class LineFollower(Node):
 
                 # Publish object as Pose message
                 pose_msg = np_to_pose(np.array([x, y, id]), 0.0, timestamp=timestamp)
-
             else:
                 pose_msg = (
                     self.lost_msg
                 )  # Attention: this creates a reference — use deepcopy() if you want self.stop_msg to remain unchanged
                 pose_msg.pose.position.z = float(id)
+                # Log a message indicating that the object has been lost
                 self.get_logger().info(f"Lost track of {self.id2target[id]}!")
             self.object_publisher.publish(pose_msg)
 
