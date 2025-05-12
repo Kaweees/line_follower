@@ -4,7 +4,6 @@ import numpy as np
 
 from ultralytics import YOLO
 from typing import Any
-from queue import PriorityQueue
 
 # ROS Imports
 import rclpy
@@ -71,7 +70,7 @@ class LineFollower(Node):
 
         # Publisher to send 3d object positions
         self.object_publisher = self.create_publisher(
-            PoseStamped, "object", qos_profile
+            PoseStamped, "/object", qos_profile
         )
 
         # Publisher to send processed result images for visualization
@@ -110,7 +109,7 @@ class LineFollower(Node):
             "imgsz"
         ]  # Get the image size (imgsz) the loaded model was trained on.
 
-        # Init model
+        # Initialize model
         print("Initializing the model with a dummy input...")
         im = np.zeros((self.imgsz, self.imgsz, 3))  # dummy image
         _ = model.predict(im)
@@ -163,14 +162,14 @@ class LineFollower(Node):
                 x, y = self.to_surface_coordinates(u, v)
 
                 # Publish object as Pose message
-                pose_msg = np_to_pose(np.array([x, y, id]), 0.0, timestamp=timestamp)
+                pose_msg = np_to_pose(np.array([x, y, label_id]), 0.0, timestamp=timestamp)
             else:
                 pose_msg = (
                     self.lost_msg
-                )  # Attention: this creates a reference — use deepcopy() if you want self.stop_msg to remain unchanged
-                pose_msg.pose.position.z = float(id)
+                )  # Attention: this creates a reference - use deepcopy() if you want self.stop_msg to remain unchanged
+                pose_msg.pose.position.z = float(label_id) # ERROR: ID is a function, cannot cast to float
                 # Log a message indicating that the object has been lost
-                self.get_logger().info(f"Lost track of {self.id2target[id]}!")
+                self.get_logger().info(f"Lost track of {self.id2target[label_id]}!")
             self.object_publisher.publish(pose_msg)
 
     def declare_params(self):

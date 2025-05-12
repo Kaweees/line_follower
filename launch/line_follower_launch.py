@@ -2,6 +2,7 @@ from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, GroupAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.actions import Node
 
 def generate_launch_description():
     # Get package paths
@@ -26,7 +27,20 @@ def generate_launch_description():
         ]
     )
 
+    # Foxglove bridge node declaration
+    foxglove_bridge_node = Node(
+        package='foxglove_bridge',
+        executable='foxglove_bridge',
+        name='foxglove_bridge',
+        output='screen',
+        parameters=[{
+            'capabilities': ['clientPublish', 'clientSubscribe'],
+            'useSimTime': False  # Optional
+        }],
+    )
+
     return LaunchDescription([
         line_tracker_launch,
-        pid_control_launch
+        pid_control_launch,
+        foxglove_bridge_node
     ])
