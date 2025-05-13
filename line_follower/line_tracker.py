@@ -3,7 +3,8 @@ import os
 import cv2
 import yaml
 import numpy as np
-from ultralytics import YOLO
+# from ultralytics import YOLO
+from yolo_onnx_runner import YOLO
 
 # ROS Imports
 import rclpy
