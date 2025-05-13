@@ -60,7 +60,7 @@ class LineFollower(Node):
             Image,
             "/camera/camera/color/image_raw",  # Topic name
             self.image_callback,  # Callback function to process incoming images
-            qos_profile,
+            qos_profile
         )
 
         # Publisher to send calculated waypoints
@@ -91,12 +91,6 @@ class LineFollower(Node):
             id: lbl for id, lbl in self.id2label.items() if lbl in targets
         }
 
-        # Publisher to send 3d object positions for each label
-        self.label2publishers: dict[str, Any] = {
-            name: self.create_publisher(PoseStamped, f"/{name}/object", qos_profile)
-            for name in targets
-        }
-
         # Log an informational message indicating that the Line Tracker Node has started
         self.get_logger().info(
             "Line Tracker Node started. Custom YOLO model loaded successfully."
@@ -118,7 +112,6 @@ class LineFollower(Node):
         return model
 
     def image_callback(self, msg):
-
         # Convert ROS image to numpy format
         # timestamp_unix is the image timestamp in seconds (Unix time)
         image, timestamp_unix = image_to_np(msg)
@@ -132,8 +125,9 @@ class LineFollower(Node):
         # Convert back to ROS2 Image and publish
         im_msg = np_to_compressedimage(cv2.cvtColor(plot, cv2.COLOR_BGR2RGB))
 
-        # Publish predictions
-        self.im_publisher.publish(im_msg)
+        if self.debug:
+            # Publish predictions
+            self.im_publisher.publish(im_msg)
 
         success, mask = parse_predictions(predictions)
 
@@ -155,7 +149,7 @@ class LineFollower(Node):
 
         # Loop through each label and publish detections
         for label_id, label in self.id2target.items():
-            detected, u, v = detect_bbox_center(predictions, label_id)
+            detected, u, v = detect_bbox_center(predictions, np.int32(label_id))
 
             if detected:
                 # Transform from pixel to world coordinates
@@ -173,7 +167,6 @@ class LineFollower(Node):
             self.object_publisher.publish(pose_msg)
 
     def declare_params(self):
-
         # Declare parameters with default values
         self.declare_parameters(
             namespace="",
@@ -184,9 +177,6 @@ class LineFollower(Node):
                 ("win_y", 280),
                 ("image_w", 640),
                 ("image_h", 360),
-                ("canny_min", 80),
-                ("canny_max", 180),
-                ("k", 3),
             ],
         )
 
@@ -201,12 +191,6 @@ class LineFollower(Node):
             )
             self.image_h = (
                 self.get_parameter("image_h").get_parameter_value().integer_value
-            )
-            self.canny_min = (
-                self.get_parameter("canny_min").get_parameter_value().integer_value
-            )
-            self.canny_max = (
-                self.get_parameter("canny_max").get_parameter_value().integer_value
             )
             self.k = self.get_parameter("k").get_parameter_value().integer_value
 
