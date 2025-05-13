@@ -56,13 +56,13 @@ class LineFollower(Node):
         )
 
         # Publisher to send calculated waypoints
-        self.way_publisher = self.create_publisher(PoseStamped, '/waypoint', qos_profile)
+        self.way_publisher = self.create_publisher(PoseStamped, 'waypoint', qos_profile)
 
         # Publisher to send object positions (in real world (3D) coordinates)
-        self.obj_publisher = self.create_publisher(PoseStamped, '/object', qos_profile)
+        self.obj_publisher = self.create_publisher(PoseStamped, 'object', qos_profile)
         
         # Publisher to send processed result images for visualization and debugging 
-        self.im_publisher = self.create_publisher(CompressedImage, '/result', qos_profile)
+        self.im_publisher = self.create_publisher(CompressedImage, 'result', qos_profile)
 
         # Returns a function that converts pixel coordinates to surface (real world) coordinates using a fixed matrix 'H'
         self.to_surface_coordinates = lambda u, v: to_surface_coordinates(u, v, H)
