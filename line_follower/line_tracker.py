@@ -87,6 +87,7 @@ class LineFollower(Node):
         # Map class IDs to labels and labels to IDs
         self.id2label = self.model.names
         targets = ["stop", "speed_3mph", "speed_2mph"]
+        self.center_id: list[int] = [id_ for id_, lbl in self.id2label.items() if lbl == 'center']
         self.id2target = {
             id: lbl for id, lbl in self.id2label.items() if lbl in targets
         }
@@ -129,7 +130,8 @@ class LineFollower(Node):
             # Publish predictions
             self.im_publisher.publish(im_msg)
 
-        success, mask = parse_predictions(predictions)
+        success, mask = parse_predictions(predictions, class_ids=self.center_id)
+        timestamp = msg.header.stamp
 
         if success:
             cx, cy = get_base(mask)
@@ -138,10 +140,10 @@ class LineFollower(Node):
             x, y = self.to_surface_coordinates(cx, cy)
 
             # Extract the timestamp from the incoming image message
-            timestamp = msg.header.stamp
 
             # Publish waypoint as Pose message
             pose_msg = np_to_pose(np.array([x, y]), 0.0, timestamp=timestamp)
+            self.get_logger().info("Publishing waypoint!")
             self.waypoint_publisher.publish(pose_msg)
         else:
             self.waypoint_publisher.publish(self.lost_msg)
@@ -150,10 +152,9 @@ class LineFollower(Node):
         # Loop through each label and publish detections
         for label_id, label in self.id2target.items():
             detected, u, v = detect_bbox_center(predictions, np.int32(label_id))
-
             if detected:
                 # Transform from pixel to world coordinates
-                x, y = self.to_surface_coordinates(u, v)
+                x, y = self.to_surface_coordinates(u.item(), v.item())
 
                 # Publish object as Pose message
                 pose_msg = np_to_pose(np.array([x, y, label_id]), 0.0, timestamp=timestamp)
@@ -163,7 +164,7 @@ class LineFollower(Node):
                 )  # Attention: this creates a reference - use deepcopy() if you want self.stop_msg to remain unchanged
                 pose_msg.pose.position.z = float(label_id) # ERROR: ID is a function, cannot cast to float
                 # Log a message indicating that the object has been lost
-                self.get_logger().info(f"Lost track of {self.id2target[label_id]}!")
+                # self.get_logger().info(f"Lost track of {self.id2target[label_id]}!")
             self.object_publisher.publish(pose_msg)
 
     def declare_params(self):
