@@ -111,7 +111,8 @@ class LineFollower(Node):
         image, timestamp_unix = image_to_np(msg) # timestamp_unix is the image timestamp in seconds (Unix time)
 
         # Run YOLO inference
-        predictions = self.model(image, verbose=False)
+        predictions = self.model(image)
+        self.get_logger().info("ran prediction on image")
 
         # Draw results on the image
         plot = predictions[0].plot()
@@ -170,7 +171,8 @@ def main(args=None):
     # Path to your custom trained YOLO model
     # /mxck2_ws/install/line_follower → /mxck2_ws/src/line_follower
     pkg_path = get_package_prefix('line_follower').replace('install', 'src') 
-    model_path = pkg_path + '/models/best.pt'
+    # model_path = pkg_path + '/models/best.pt'
+    model_path = pkg_path + '/models/best.onnx'
 
     rclpy.init(args=args)
     node = LineFollower(model_path, config_path)
