@@ -72,7 +72,7 @@ class LineFollower(Node):
         # Map class IDs to labels and labels to IDs
         id2label = self.model.names
         targets = ['stop', 'speed_3mph', 'speed_2mph']
-        self.center_line_id: list[int] = [id_ for id_, lbl in self.id2label.items() if lbl == 'center']
+        self.center_line_id: list[int] = [id_ for id_, lbl in id2label.items() if lbl == 'center']
         self.id2target = {id: lbl for id, lbl in id2label.items() if lbl in targets}
 
         # Log an informational message indicating that the Line Tracker Node has started
