@@ -1,7 +1,6 @@
 # Third-Party Libraries
 import os
 import cv2
-import yaml
 import numpy as np
 from ultralytics import YOLO
 
@@ -17,6 +16,7 @@ from ament_index_python.packages import get_package_share_directory, get_package
 from line_follower.utils import to_surface_coordinates, read_transform_config, parse_predictions, get_base, detect_bbox_center
 from ros2_numpy import image_to_np, np_to_image, np_to_pose, np_to_compressedimage
 
+
 class LineFollower(Node):
     def __init__(self, model_path, config_path):
         '''
@@ -28,6 +28,9 @@ class LineFollower(Node):
             /result     = visualization of results (segmentation info plotted on raw image data).
         '''
         super().__init__('line_tracker')
+
+        # Indicate starting line follower node
+        self.get_logger().info("Line Tracker Node starting initialization...")
 
         # Ensure input paths exist
         for path in [model_path, config_path]:
@@ -77,6 +80,7 @@ class LineFollower(Node):
 
         # Log an informational message indicating that the Line Tracker Node has started
         self.get_logger().info("Line Tracker Node started. Custom YOLO model loaded successfully.")
+        self.get_logger().info(f"Detecting id:objects listed here {self.id2target} and {self.center_line_id}:center")
 
 
     def load_model(self, filepath):
@@ -87,7 +91,7 @@ class LineFollower(Node):
         model = YOLO(filepath)
 
         # Get the image size (imgsz) the loaded model was trained on.
-        self.imgsz = model.args['imgsz'] 
+        self.imgsz = model.args['imgsz']  # type: ignore
 
         # Initialize model
         print("line_tracker.py: Initializing the model with a dummy input...")
@@ -146,9 +150,9 @@ class LineFollower(Node):
             detected, u, v = detect_bbox_center(predictions, id)
 
             # Object with the current id was detected
-            if detected:
+            if detected and u is not None and v is not None:
                 # Transform from pixel to world coordinates
-                x, y = self.to_surface_coordinates(u, v)
+                x, y = self.to_surface_coordinates(u.item(), v.item())
 
                 # Create pose message to publish location of object
                 pose_msg = np_to_pose(np.array([x, y, id]), 0.0, timestamp=timestamp)
