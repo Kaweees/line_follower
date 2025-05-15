@@ -78,6 +78,14 @@ class LineFollower(Node):
         self.center_line_id: list[int] = [id_ for id_, lbl in id2label.items() if lbl == 'center']
         self.id2target = {id: lbl for id, lbl in id2label.items() if lbl in targets}
 
+        # Define labels and their corresponding publishers
+        self.label2publisher = {
+            self.center_id: self.center_publisher,
+            self.stop_id: self.stop_publisher,
+            self.speed_2mph_id: self.speed_2mph_sign_publisher,
+            self.speed_3mph_id: self.speed_3mph_publisher,
+        }
+
         # Log an informational message indicating that the Line Tracker Node has started
         self.get_logger().info("Line Tracker Node started. Custom YOLO model loaded successfully.")
         self.get_logger().info(f"Detecting id:objects listed here {self.id2target} and {self.center_line_id}:center")
