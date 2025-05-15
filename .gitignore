@@ -1,6 +1,6 @@
-# Ignore model files to avoid committing large binary weights
-*.onnx
-*.pt
+# # Ignore model files to avoid committing large binary weights
+# *.onnx
+# *.pt
 
 devel/
 logs/
